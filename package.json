@@ -6,7 +6,9 @@
   "license": "MIT",
   "scripts": {
     "dev": "gulp",
-    "build": "gulp build"
+    "build": "gulp build",
+    "download": "gulp download",
+    "deploy": "gulp deploy"
   },
   "dependencies": {
     "browser-sync": "^2.27.10",
