@@ -10,6 +10,7 @@ pipeline {
     }
 
     stages {
+
         stage('Clone Repo') {
             steps {
                 git branch: 'main', url: 'https://github.com/AkashReddy123/educenter-website.git'
@@ -85,6 +86,15 @@ pipeline {
                     '''
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Blue-Green Deployment Successful! New version: ${env.NEW_COLOR}"
+        }
+        failure {
+            echo "❌ Deployment Failed. Please check logs."
         }
     }
 }
