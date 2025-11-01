@@ -82,20 +82,22 @@ pipeline {
         stage('Health Check Before Switch') {
             steps {
                 script {
-                    echo "🩺 Checking if %NEW_COLOR% deployment is healthy..."
-                    def healthCheck = bat(
+                    echo "🩺 Checking if ${env.NEW_COLOR} deployment is healthy..."
+                    def healthCheck = powershell(
                         script: '''
-                        @echo off
-                        timeout /t 20 >nul
-                        curl -s -o nul -w "%%{http_code}" http://localhost:30082
+                        Start-Sleep -Seconds 20
+                        try {
+                            $response = Invoke-WebRequest -Uri "http://localhost:30082" -UseBasicParsing -TimeoutSec 10
+                            if ($response.StatusCode -eq 200) { Write-Output "200" } else { Write-Output "FAIL" }
+                        } catch { Write-Output "FAIL" }
                         ''',
                         returnStdout: true
                     ).trim()
 
                     if (healthCheck != "200") {
-                        error "❌ Health check failed for %NEW_COLOR% version! Aborting deployment."
+                        error "❌ Health check failed for ${env.NEW_COLOR} version! Aborting deployment."
                     } else {
-                        echo "✅ Health check passed for %NEW_COLOR% version."
+                        echo "✅ Health check passed for ${env.NEW_COLOR} version."
                     }
                 }
             }
