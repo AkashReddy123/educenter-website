@@ -44,7 +44,7 @@ pipeline {
 
         stage('Push to Docker Hub') {
             steps {
-                // ✅ This works with username + password (not token)
+                // ✅ Works with Docker Hub username + password
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-login', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh """
                     echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
@@ -59,8 +59,10 @@ pipeline {
             steps {
                 script {
                     sh """
-                    kubectl set image deployment/educenter-${NEW_COLOR} educenter-container=${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR} -n ${K8S_NAMESPACE} || kubectl apply -f k8s/educenter-${NEW_COLOR}-deployment.yaml
-                    kubectl apply -f k8s/educenter-service.yaml
+                    kubectl set image deployment/educenter-${NEW_COLOR} educenter-container=${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR} -n ${K8S_NAMESPACE} \
+                    || kubectl apply -f educenter-${NEW_COLOR}-deployment.yaml
+
+                    kubectl apply -f educenter-service.yaml
                     """
                 }
             }
@@ -72,7 +74,7 @@ pipeline {
                     sh """
                     kubectl patch svc educenter-service -p '{"spec":{"selector":{"app":"educenter-${NEW_COLOR}","color":"${NEW_COLOR}"}}}'
                     """
-                    echo "Service switched to ${NEW_COLOR} deployment successfully!"
+                    echo "✅ Service switched to ${NEW_COLOR} deployment successfully!"
                 }
             }
         }
