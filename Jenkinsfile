@@ -12,7 +12,7 @@ pipeline {
     stages {
         stage('Clone Repo') {
             steps {
-                git branch: 'main', url: 'https://github.com/AkashReddyy/educenter-website.git'
+                git branch: 'main', url: 'https://github.com/AkashReddy123/educenter-website.git'
             }
         }
 
