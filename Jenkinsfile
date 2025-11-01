@@ -5,7 +5,7 @@ pipeline {
         DOCKER_IMAGE = "educenter"
         BLUE_TAG = "blue"
         GREEN_TAG = "green"
-        DOCKER_CREDENTIALS_ID = "dockerhub-credentials"
+        DOCKER_CREDENTIALS_ID = "dockerhub-login"
         KUBE_CREDENTIALS_ID = "kubeconfig"
     }
 
