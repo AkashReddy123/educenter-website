@@ -79,6 +79,28 @@ pipeline {
             }
         }
 
+        stage('Health Check Before Switch') {
+            steps {
+                script {
+                    echo "🩺 Checking if %NEW_COLOR% deployment is healthy..."
+                    def healthCheck = bat(
+                        script: '''
+                        @echo off
+                        timeout /t 20 >nul
+                        curl -s -o nul -w "%%{http_code}" http://localhost:30082
+                        ''',
+                        returnStdout: true
+                    ).trim()
+
+                    if (healthCheck != "200") {
+                        error "❌ Health check failed for %NEW_COLOR% version! Aborting deployment."
+                    } else {
+                        echo "✅ Health check passed for %NEW_COLOR% version."
+                    }
+                }
+            }
+        }
+
         stage('Switch Service to New Version') {
             steps {
                 withCredentials([file(credentialsId: "${KUBE_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
