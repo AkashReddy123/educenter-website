@@ -14,7 +14,7 @@ pipeline {
             steps {
                 git branch: 'main', 
                     credentialsId: 'github-creds',    // ✅ Use your GitHub PAT credentials
-                    url: 'https://github.com/AkashReddyy/educenter-website.git'
+                    url: 'https://github.com/AkashReddy123/educenter-website.git'
             }
         }
 
