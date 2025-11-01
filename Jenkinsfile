@@ -5,27 +5,32 @@ pipeline {
         DOCKER_IMAGE = "educenter"
         BLUE_TAG = "blue"
         GREEN_TAG = "green"
-        DOCKER_HUB_USER = "balaakashreddyy"   // your Docker Hub username
+        DOCKER_HUB_USER = "balaakashreddyy"   // Your Docker Hub username
         K8S_NAMESPACE = "default"
     }
 
     stages {
         stage('Clone Repo') {
             steps {
-                git branch: 'main', url: 'https://github.com/AkashReddyy/educenter-website.git'
+                git branch: 'main', 
+                    credentialsId: 'github-creds',    // ✅ Use your GitHub PAT credentials
+                    url: 'https://github.com/AkashReddyy/educenter-website.git'
             }
         }
 
         stage('Set Active Color') {
             steps {
                 script {
-                    def activeColor = sh(script: "kubectl get svc educenter-service -o=jsonpath='{.spec.selector.color}' || echo blue", returnStdout: true).trim()
+                    def activeColor = sh(
+                        script: "kubectl get svc educenter-service -o=jsonpath='{.spec.selector.color}' || echo blue",
+                        returnStdout: true
+                    ).trim()
                     if (activeColor == "blue") {
                         env.NEW_COLOR = "green"
-                        echo "Blue is active → Deploying Green"
+                        echo "🟩 Blue is active → Deploying Green"
                     } else {
                         env.NEW_COLOR = "blue"
-                        echo "Green is active → Deploying Blue"
+                        echo "🟦 Green is active → Deploying Blue"
                     }
                 }
             }
@@ -44,7 +49,7 @@ pipeline {
 
         stage('Push to Docker Hub') {
             steps {
-                // ✅ Works with username + password (not token)
+                // ✅ Works with Docker Hub username + password
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-login', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh """
                     echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
