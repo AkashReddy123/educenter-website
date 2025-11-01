@@ -5,7 +5,7 @@ pipeline {
         DOCKER_IMAGE = "educenter"
         BLUE_TAG = "blue"
         GREEN_TAG = "green"
-        DOCKER_HUB_USER = "akashreddy123"   // your Docker Hub username
+        DOCKER_HUB_USER = "balaakashreddyy"   // your Docker Hub username
         K8S_NAMESPACE = "default"
     }
 
