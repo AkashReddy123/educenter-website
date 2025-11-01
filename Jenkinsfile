@@ -5,32 +5,33 @@ pipeline {
         DOCKER_IMAGE = "educenter"
         BLUE_TAG = "blue"
         GREEN_TAG = "green"
-        DOCKER_HUB_USER = "balaakashreddyy"   // Your Docker Hub username
+        DOCKER_HUB_USER = "balaakashreddyy"
         K8S_NAMESPACE = "default"
     }
 
     stages {
+
         stage('Clone Repo') {
             steps {
-                git branch: 'main', 
-                    credentialsId: 'github-creds',    // ✅ Use your GitHub PAT credentials
-                    url: 'https://github.com/AkashReddy123/educenter-website.git'
+                git branch: 'main', url: 'https://github.com/AkashReddyy/educenter-website.git'
             }
         }
 
         stage('Set Active Color') {
             steps {
                 script {
-                    def activeColor = sh(
-                        script: "kubectl get svc educenter-service -o=jsonpath='{.spec.selector.color}' || echo blue",
+                    // PowerShell command to get current active color or default to blue
+                    def activeColor = bat(
+                        script: 'kubectl get svc educenter-service -o jsonpath="{.spec.selector.color}" 2>$null || echo blue',
                         returnStdout: true
                     ).trim()
+
                     if (activeColor == "blue") {
                         env.NEW_COLOR = "green"
-                        echo "🟩 Blue is active → Deploying Green"
+                        echo "Blue is active → Deploying Green"
                     } else {
                         env.NEW_COLOR = "blue"
-                        echo "🟦 Green is active → Deploying Blue"
+                        echo "Green is active → Deploying Blue"
                     }
                 }
             }
@@ -39,7 +40,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    sh """
+                    bat """
                     docker build -t ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR} .
                     docker tag ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR} ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:latest
                     """
@@ -49,10 +50,9 @@ pipeline {
 
         stage('Push to Docker Hub') {
             steps {
-                // ✅ Works with Docker Hub username + password
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-login', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh """
-                    echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                    bat """
+                    echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
                     docker push ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR}
                     docker push ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:latest
                     """
@@ -62,10 +62,9 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                // ✅ Use kubeconfig from Jenkins credentials
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    sh """
-                    kubectl set image deployment/educenter-${NEW_COLOR} educenter-container=${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR} -n ${K8S_NAMESPACE} \
+                    bat """
+                    kubectl set image deployment/educenter-${NEW_COLOR} educenter-container=${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR} -n ${K8S_NAMESPACE} ^
                     || kubectl apply -f educenter-${NEW_COLOR}-deployment.yaml
 
                     kubectl apply -f educenter-service.yaml
@@ -78,8 +77,8 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     script {
-                        sh """
-                        kubectl patch svc educenter-service -p '{"spec":{"selector":{"app":"educenter-${NEW_COLOR}","color":"${NEW_COLOR}"}}}'
+                        bat """
+                        kubectl patch svc educenter-service -p "{\\"spec\\":{\\"selector\\":{\\"app\\":\\"educenter-${NEW_COLOR}\\",\\"color\\":\\"${NEW_COLOR}\\"}}}"
                         """
                         echo "✅ Service switched to ${NEW_COLOR} deployment successfully!"
                     }
