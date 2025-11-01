@@ -5,6 +5,8 @@ pipeline {
         DOCKER_IMAGE = "educenter"
         BLUE_TAG = "blue"
         GREEN_TAG = "green"
+        DOCKER_HUB_USER = "akashreddy123"   // Change this to your Docker Hub username
+        K8S_NAMESPACE = "default"
     }
 
     stages {
@@ -14,18 +16,63 @@ pipeline {
             }
         }
 
+        stage('Set Active Color') {
+            steps {
+                script {
+                    def activeColor = sh(script: "kubectl get svc educenter-service -o=jsonpath='{.spec.selector.color}'", returnStdout: true).trim()
+                    if (activeColor == "blue") {
+                        env.NEW_COLOR = "green"
+                        echo "Blue is active → Deploying Green"
+                    } else {
+                        env.NEW_COLOR = "blue"
+                        echo "Green is active → Deploying Blue"
+                    }
+                }
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t ${DOCKER_IMAGE}:${BLUE_TAG} .'
+                script {
+                    sh """
+                    docker build -t ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR} .
+                    docker tag ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR} ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:latest
+                    """
+                }
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([string(credentialsId: 'dockerhub-token', variable: 'DOCKER_HUB_PASS')]) {
+                    sh """
+                    echo $DOCKER_HUB_PASS | docker login -u ${DOCKER_HUB_USER} --password-stdin
+                    docker push ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR}
+                    docker push ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:latest
+                    """
+                }
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
-                sh '''
-                kubectl apply -f k8s/educenter-blue-deployment.yaml
-                kubectl apply -f k8s/educenter-service.yaml
-                '''
+                script {
+                    sh """
+                    kubectl set image deployment/educenter-${NEW_COLOR} educenter-container=${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR} -n ${K8S_NAMESPACE} || kubectl apply -f k8s/educenter-${NEW_COLOR}-deployment.yaml
+                    kubectl apply -f k8s/educenter-service.yaml
+                    """
+                }
+            }
+        }
+
+        stage('Switch Service to New Version') {
+            steps {
+                script {
+                    sh """
+                    kubectl patch svc educenter-service -p '{\"spec\":{\"selector\":{\"app\":\"educenter-${NEW_COLOR}\", \"color\":\"${NEW_COLOR}\"}}}'
+                    """
+                    echo "Service switched to ${NEW_COLOR} deployment successfully!"
+                }
             }
         }
     }
