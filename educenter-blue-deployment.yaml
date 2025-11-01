@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: educenter-blue
+  labels:
+    app: educenter
+    version: blue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: educenter
+      version: blue
+  template:
+    metadata:
+      labels:
+        app: educenter
+        version: blue
+    spec:
+      containers:
+        - name: educenter-blue
+          image: educenter:blue
+          ports:
+            - containerPort: 80

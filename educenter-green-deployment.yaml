@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: educenter-green
+  labels:
+    app: educenter
+    version: green
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: educenter
+      version: green
+  template:
+    metadata:
+      labels:
+        app: educenter
+        version: green
+    spec:
+      containers:
+        - name: educenter-green
+          image: educenter:green
+          ports:
+            - containerPort: 80
