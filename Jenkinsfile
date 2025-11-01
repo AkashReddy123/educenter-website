@@ -46,6 +46,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 bat '''
+                echo Building Docker image %DOCKER_IMAGE%:%NEW_COLOR% ...
                 docker build -t %DOCKER_IMAGE%:%NEW_COLOR% .
                 '''
             }
@@ -55,8 +56,10 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     bat '''
+                    echo Logging in to Docker Hub...
                     docker login -u %DOCKER_USER% -p %DOCKER_PASS%
                     docker tag %DOCKER_IMAGE%:%NEW_COLOR% %DOCKER_USER%/%DOCKER_IMAGE%:%NEW_COLOR%
+                    echo Pushing image to Docker Hub...
                     docker push %DOCKER_USER%/%DOCKER_IMAGE%:%NEW_COLOR%
                     '''
                 }
@@ -82,7 +85,7 @@ pipeline {
                     bat '''
                     set KUBECONFIG=%KUBECONFIG_FILE%
                     echo Switching service to %NEW_COLOR% version...
-                    kubectl patch svc educenter-service -p "{\"spec\": {\"selector\": {\"app\": \"educenter\", \"color\": \"%NEW_COLOR%\"}}}"
+                    kubectl patch svc educenter-service -p "{\\"spec\\": {\\"selector\\": {\\"app\\": \\"educenter\\", \\"color\\": \\"%NEW_COLOR%\\"}}}"
                     '''
                 }
             }
