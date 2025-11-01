@@ -5,7 +5,7 @@ pipeline {
         DOCKER_IMAGE = "educenter"
         BLUE_TAG = "blue"
         GREEN_TAG = "green"
-        DOCKER_HUB_USER = "akashreddy123"   // Change this to your Docker Hub username
+        DOCKER_HUB_USER = "akashreddy123"   // your Docker Hub username
         K8S_NAMESPACE = "default"
     }
 
@@ -19,7 +19,7 @@ pipeline {
         stage('Set Active Color') {
             steps {
                 script {
-                    def activeColor = sh(script: "kubectl get svc educenter-service -o=jsonpath='{.spec.selector.color}'", returnStdout: true).trim()
+                    def activeColor = sh(script: "kubectl get svc educenter-service -o=jsonpath='{.spec.selector.color}' || echo blue", returnStdout: true).trim()
                     if (activeColor == "blue") {
                         env.NEW_COLOR = "green"
                         echo "Blue is active → Deploying Green"
@@ -44,9 +44,10 @@ pipeline {
 
         stage('Push to Docker Hub') {
             steps {
-                withCredentials([string(credentialsId: 'dockerhub-token', variable: 'DOCKER_HUB_PASS')]) {
+                // ✅ This works with username + password (not token)
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-login', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh """
-                    echo $DOCKER_HUB_PASS | docker login -u ${DOCKER_HUB_USER} --password-stdin
+                    echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
                     docker push ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:${NEW_COLOR}
                     docker push ${DOCKER_HUB_USER}/${DOCKER_IMAGE}:latest
                     """
@@ -69,7 +70,7 @@ pipeline {
             steps {
                 script {
                     sh """
-                    kubectl patch svc educenter-service -p '{\"spec\":{\"selector\":{\"app\":\"educenter-${NEW_COLOR}\", \"color\":\"${NEW_COLOR}\"}}}'
+                    kubectl patch svc educenter-service -p '{"spec":{"selector":{"app":"educenter-${NEW_COLOR}","color":"${NEW_COLOR}"}}}'
                     """
                     echo "Service switched to ${NEW_COLOR} deployment successfully!"
                 }
