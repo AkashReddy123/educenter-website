@@ -1,45 +1,68 @@
 pipeline {
     agent any
 
-    parameters {
-        choice(name: 'DEPLOY_ENV', choices: ['blue', 'green'], description: 'Choose which environment to deploy: Blue or Green')
-        booleanParam(name: 'SWITCH_TRAFFIC', defaultValue: false, description: 'Switch traffic to the selected environment after deployment')
-    }
-
     environment {
-        IMAGE_NAME = 'akashreddy123/educenter'
-        KUBE_NAMESPACE = 'default'
-        DOCKER_CREDENTIALS_ID = 'dockerhub-login'
-        KUBE_CREDENTIALS_ID = 'kubeconfig'
+        DOCKER_IMAGE = "educenter"
+        BLUE_TAG = "blue"
+        GREEN_TAG = "green"
+        DOCKER_CREDENTIALS_ID = "dockerhub-login"
+        KUBE_CREDENTIALS_ID = "kubeconfig"
+        DOCKER_REPO = "balaakashreddyy"
     }
 
     stages {
 
-        stage('Clone Repository') {
+        stage('Clone Repo') {
             steps {
                 git branch: 'main', url: 'https://github.com/AkashReddy123/educenter-website.git'
             }
         }
 
-        stage('Docker Build') {
+        stage('Set Active Version') {
             steps {
                 script {
-                    echo "Building Docker image for ${params.DEPLOY_ENV} environment..."
-                    bat """
-                    docker build -t ${IMAGE_NAME}:${params.DEPLOY_ENV} .
-                    """
+                    def activeVersion = bat(
+                        script: '''
+                        @echo off
+                        setlocal enabledelayedexpansion
+                        for /f "tokens=* usebackq" %%A in (`kubectl get svc educenter-service -o jsonpath="{.spec.selector.version}" 2^>nul`) do set VERSION=%%A
+                        if not defined VERSION set VERSION=blue
+                        echo !VERSION!
+                        endlocal
+                        ''',
+                        returnStdout: true
+                    ).trim()
+
+                    if (activeVersion == "blue") {
+                        env.NEW_VERSION = "green"
+                        echo "🟦 Blue is active → Deploying Green"
+                    } else {
+                        env.NEW_VERSION = "blue"
+                        echo "🟩 Green is active → Deploying Blue"
+                    }
                 }
             }
         }
 
-        stage('Docker Push') {
+        stage('Build Docker Image') {
+            steps {
+                bat '''
+                echo Building Docker image %DOCKER_REPO%/%DOCKER_IMAGE%:%NEW_VERSION% ...
+                docker build -t %DOCKER_REPO%/%DOCKER_IMAGE%:%NEW_VERSION% .
+                '''
+            }
+        }
+
+        stage('Push to Docker Hub') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    bat """
+                    bat '''
+                    echo Logging in to Docker Hub...
                     docker login -u %DOCKER_USER% -p %DOCKER_PASS%
-                    docker tag ${IMAGE_NAME}:${params.DEPLOY_ENV} %DOCKER_USER%/${IMAGE_NAME}:${params.DEPLOY_ENV}
-                    docker push %DOCKER_USER%/${IMAGE_NAME}:${params.DEPLOY_ENV}
-                    """
+                    echo Pushing image to Docker Hub...
+                    docker push %DOCKER_REPO%/%DOCKER_IMAGE%:%NEW_VERSION%
+                    docker logout
+                    '''
                 }
             }
         }
@@ -47,23 +70,23 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 withCredentials([file(credentialsId: "${KUBE_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
-                    bat """
+                    bat '''
                     set KUBECONFIG=%KUBECONFIG_FILE%
-                    echo Deploying ${params.DEPLOY_ENV} environment...
-                    kubectl apply -f educenter-${params.DEPLOY_ENV}-deployment.yaml
+                    echo Deploying %NEW_VERSION% version to Kubernetes...
+                    kubectl apply -f educenter-%NEW_VERSION%-deployment.yaml
                     kubectl apply -f educenter-service.yaml
-                    """
+                    '''
                 }
             }
         }
 
-        stage('Verify Deployment Health') {
+        stage('Health Check Before Switch') {
             steps {
                 script {
-                    echo "🩺 Checking health of ${params.DEPLOY_ENV} environment..."
+                    echo "🩺 Checking if ${env.NEW_VERSION} deployment is healthy..."
                     def healthCheck = powershell(
                         script: '''
-                        Start-Sleep -Seconds 20
+                        Start-Sleep -Seconds 25
                         try {
                             $response = Invoke-WebRequest -Uri "http://localhost:30082" -UseBasicParsing -TimeoutSec 10
                             if ($response.StatusCode -eq 200) { Write-Output "200" } else { Write-Output "FAIL" }
@@ -73,37 +96,22 @@ pipeline {
                     ).trim()
 
                     if (healthCheck != "200") {
-                        error "❌ Health check failed for ${params.DEPLOY_ENV}! Aborting deployment."
+                        error "❌ Health check failed for ${env.NEW_VERSION} version! Aborting deployment."
                     } else {
-                        echo "✅ ${params.DEPLOY_ENV} environment is healthy."
+                        echo "✅ Health check passed for ${env.NEW_VERSION} version."
                     }
                 }
             }
         }
 
-        stage('Switch Traffic to New Environment') {
-            when {
-                expression { return params.SWITCH_TRAFFIC }
-            }
+        stage('Switch Service to New Version') {
             steps {
                 withCredentials([file(credentialsId: "${KUBE_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
-                    bat """
+                    bat '''
                     set KUBECONFIG=%KUBECONFIG_FILE%
-                    echo Switching traffic to ${params.DEPLOY_ENV} environment...
-                    kubectl patch svc educenter-service -p "{\\"spec\\": {\\"selector\\": {\\"app\\": \\"educenter\\", \\"version\\": \\"${params.DEPLOY_ENV}\\"}}}"
-                    """
-                }
-            }
-        }
-
-        stage('Verify Final Status') {
-            steps {
-                withCredentials([file(credentialsId: "${KUBE_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
-                    bat """
-                    set KUBECONFIG=%KUBECONFIG_FILE%
-                    kubectl get pods -l app=educenter -n ${KUBE_NAMESPACE}
-                    kubectl get svc educenter-service -n ${KUBE_NAMESPACE}
-                    """
+                    echo Switching service to %NEW_VERSION% version...
+                    kubectl patch svc educenter-service --type merge -p "{\"spec\": {\"selector\": {\"app\": \"educenter\", \"version\": \"%NEW_VERSION%\"}}}"
+                    '''
                 }
             }
         }
@@ -111,10 +119,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Blue-Green deployment successful! Active environment: ${params.DEPLOY_ENV}"
+            echo "✅ Blue-Green Deployment Successful! New active version: ${env.NEW_VERSION}"
         }
         failure {
-            echo "❌ Deployment failed. Check logs and verify the Kubernetes state."
+            echo "❌ Deployment Failed. Please check logs or rollback manually."
         }
     }
 }
