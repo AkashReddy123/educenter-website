@@ -17,27 +17,27 @@ pipeline {
             }
         }
 
-        stage('Set Active Color') {
+        stage('Set Active Version') {
             steps {
                 script {
-                    def activeColor = bat(
+                    def activeVersion = bat(
                         script: '''
                         @echo off
                         setlocal enabledelayedexpansion
-                        for /f "tokens=* usebackq" %%A in (`kubectl get svc educenter-service -o jsonpath="{.spec.selector.color}" 2^>nul`) do set COLOR=%%A
-                        if not defined COLOR set COLOR=blue
-                        echo !COLOR!
+                        for /f "tokens=* usebackq" %%A in (`kubectl get svc educenter-service -o jsonpath="{.spec.selector.version}" 2^>nul`) do set VERSION=%%A
+                        if not defined VERSION set VERSION=blue
+                        echo !VERSION!
                         endlocal
                         ''',
                         returnStdout: true
                     ).trim()
 
-                    if (activeColor == "blue") {
-                        env.NEW_COLOR = "green"
-                        echo "Blue is active → Deploying Green"
+                    if (activeVersion == "blue") {
+                        env.NEW_VERSION = "green"
+                        echo "🟦 Blue is active → Deploying Green"
                     } else {
-                        env.NEW_COLOR = "blue"
-                        echo "Green is active → Deploying Blue"
+                        env.NEW_VERSION = "blue"
+                        echo "🟩 Green is active → Deploying Blue"
                     }
                 }
             }
@@ -46,8 +46,8 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 bat '''
-                echo Building Docker image %DOCKER_IMAGE%:%NEW_COLOR% ...
-                docker build -t %DOCKER_IMAGE%:%NEW_COLOR% .
+                echo Building Docker image %DOCKER_IMAGE%:%NEW_VERSION% ...
+                docker build -t %DOCKER_IMAGE%:%NEW_VERSION% .
                 '''
             }
         }
@@ -58,9 +58,9 @@ pipeline {
                     bat '''
                     echo Logging in to Docker Hub...
                     docker login -u %DOCKER_USER% -p %DOCKER_PASS%
-                    docker tag %DOCKER_IMAGE%:%NEW_COLOR% %DOCKER_USER%/%DOCKER_IMAGE%:%NEW_COLOR%
+                    docker tag %DOCKER_IMAGE%:%NEW_VERSION% %DOCKER_USER%/%DOCKER_IMAGE%:%NEW_VERSION%
                     echo Pushing image to Docker Hub...
-                    docker push %DOCKER_USER%/%DOCKER_IMAGE%:%NEW_COLOR%
+                    docker push %DOCKER_USER%/%DOCKER_IMAGE%:%NEW_VERSION%
                     '''
                 }
             }
@@ -71,8 +71,8 @@ pipeline {
                 withCredentials([file(credentialsId: "${KUBE_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
                     bat '''
                     set KUBECONFIG=%KUBECONFIG_FILE%
-                    echo Deploying %NEW_COLOR% version to Kubernetes...
-                    kubectl apply -f educenter-%NEW_COLOR%-deployment.yaml
+                    echo Deploying %NEW_VERSION% version to Kubernetes...
+                    kubectl apply -f educenter-%NEW_VERSION%-deployment.yaml
                     kubectl apply -f educenter-service.yaml
                     '''
                 }
@@ -82,7 +82,7 @@ pipeline {
         stage('Health Check Before Switch') {
             steps {
                 script {
-                    echo "🩺 Checking if ${env.NEW_COLOR} deployment is healthy..."
+                    echo "🩺 Checking if ${env.NEW_VERSION} deployment is healthy..."
                     def healthCheck = powershell(
                         script: '''
                         Start-Sleep -Seconds 20
@@ -95,9 +95,9 @@ pipeline {
                     ).trim()
 
                     if (healthCheck != "200") {
-                        error "❌ Health check failed for ${env.NEW_COLOR} version! Aborting deployment."
+                        error "❌ Health check failed for ${env.NEW_VERSION} version! Aborting deployment."
                     } else {
-                        echo "✅ Health check passed for ${env.NEW_COLOR} version."
+                        echo "✅ Health check passed for ${env.NEW_VERSION} version."
                     }
                 }
             }
@@ -108,8 +108,8 @@ pipeline {
                 withCredentials([file(credentialsId: "${KUBE_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
                     bat '''
                     set KUBECONFIG=%KUBECONFIG_FILE%
-                    echo Switching service to %NEW_COLOR% version...
-                    kubectl patch svc educenter-service --type merge -p "{\\"spec\\": {\\"selector\\": {\\"app\\": \\"educenter\\", \\"color\\": \\"%NEW_COLOR%\\"}}}"
+                    echo Switching service to %NEW_VERSION% version...
+                    kubectl patch svc educenter-service --type merge -p "{\\"spec\\": {\\"selector\\": {\\"app\\": \\"educenter\\", \\"version\\": \\"%NEW_VERSION%\\"}}}"
                     '''
                 }
             }
@@ -118,10 +118,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Blue-Green Deployment Successful! New version: ${env.NEW_COLOR}"
+            echo "✅ Blue-Green Deployment Successful! New active version: ${env.NEW_VERSION}"
         }
         failure {
-            echo "❌ Deployment Failed. Please check logs."
+            echo "❌ Deployment Failed. Please check logs or rollback manually."
         }
     }
 }
