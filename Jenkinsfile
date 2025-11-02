@@ -40,7 +40,7 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
-                    echo "Detected currently active version in cluster: ${detectedVersion}"
+                    echo "🔍 Currently active version in cluster: ${detectedVersion}"
 
                     if (params.DEPLOY_VERSION != 'auto') {
                         env.NEW_VERSION = params.DEPLOY_VERSION
@@ -57,6 +57,9 @@ pipeline {
                             echo "⚙️ No active version detected → Deploying Blue (first deployment)"
                         }
                     }
+
+                    // Log final target
+                    echo "🎯 Target deployment version: ${env.NEW_VERSION}"
                 }
             }
         }
@@ -64,7 +67,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 bat '''
-                echo Building Docker image %DOCKER_IMAGE%:%NEW_VERSION% ...
+                echo 🏗️ Building Docker image %DOCKER_IMAGE%:%NEW_VERSION% ...
                 docker build -t %DOCKER_IMAGE%:%NEW_VERSION% .
                 '''
             }
@@ -74,10 +77,10 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     bat '''
-                    echo Logging in to Docker Hub...
+                    echo 🔐 Logging in to Docker Hub...
                     docker login -u %DOCKER_USER% -p %DOCKER_PASS%
                     docker tag %DOCKER_IMAGE%:%NEW_VERSION% %DOCKER_USER%/%DOCKER_IMAGE%:%NEW_VERSION%
-                    echo Pushing image to Docker Hub...
+                    echo 📤 Pushing image to Docker Hub...
                     docker push %DOCKER_USER%/%DOCKER_IMAGE%:%NEW_VERSION%
                     '''
                 }
@@ -89,7 +92,7 @@ pipeline {
                 withCredentials([file(credentialsId: "${KUBE_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
                     bat '''
                     set KUBECONFIG=%KUBECONFIG_FILE%
-                    echo Deploying %NEW_VERSION% version to Kubernetes...
+                    echo 🚀 Deploying %NEW_VERSION% version to Kubernetes...
                     kubectl apply -f educenter-%NEW_VERSION%-deployment.yaml
                     kubectl apply -f educenter-service.yaml
                     '''
@@ -132,6 +135,9 @@ pipeline {
                     echo 🔁 Switching service to %NEW_VERSION% version...
                     kubectl patch svc educenter-service --type merge -p "{\\"spec\\": {\\"selector\\": {\\"app\\": \\"educenter\\", \\"version\\": \\"%NEW_VERSION%\\"}}}"
                     echo ✅ Traffic switched successfully to %NEW_VERSION%!
+
+                    echo 🌐 Checking currently active service version...
+                    kubectl get svc educenter-service -o=jsonpath="{.spec.selector.version}"
                     '''
                 }
             }
