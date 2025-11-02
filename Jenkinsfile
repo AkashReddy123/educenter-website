@@ -1,13 +1,20 @@
 pipeline {
     agent any
 
+    parameters {
+        choice(
+            name: 'DEPLOY_VERSION',
+            choices: ['auto', 'blue', 'green'],
+            description: 'Select which version to deploy (auto will detect the opposite of the active one)'
+        )
+    }
+
     environment {
         DOCKER_IMAGE = "educenter"
         BLUE_TAG = "blue"
         GREEN_TAG = "green"
         DOCKER_CREDENTIALS_ID = "dockerhub-login"
         KUBE_CREDENTIALS_ID = "kubeconfig"
-        DOCKER_REPO = "balaakashreddyy"
     }
 
     stages {
@@ -21,24 +28,34 @@ pipeline {
         stage('Set Active Version') {
             steps {
                 script {
-                    def activeVersion = bat(
+                    def detectedVersion = bat(
                         script: '''
                         @echo off
                         setlocal enabledelayedexpansion
                         for /f "tokens=* usebackq" %%A in (`kubectl get svc educenter-service -o jsonpath="{.spec.selector.version}" 2^>nul`) do set VERSION=%%A
-                        if not defined VERSION set VERSION=blue
+                        if not defined VERSION set VERSION=none
                         echo !VERSION!
                         endlocal
                         ''',
                         returnStdout: true
                     ).trim()
 
-                    if (activeVersion == "blue") {
-                        env.NEW_VERSION = "green"
-                        echo "🟦 Blue is active → Deploying Green"
+                    echo "Detected currently active version in cluster: ${detectedVersion}"
+
+                    if (params.DEPLOY_VERSION != 'auto') {
+                        env.NEW_VERSION = params.DEPLOY_VERSION
+                        echo "🚀 Manual selection: deploying ${env.NEW_VERSION} version."
                     } else {
-                        env.NEW_VERSION = "blue"
-                        echo "🟩 Green is active → Deploying Blue"
+                        if (detectedVersion == "blue") {
+                            env.NEW_VERSION = "green"
+                            echo "🟦 Blue is active → Auto-switching to Green"
+                        } else if (detectedVersion == "green") {
+                            env.NEW_VERSION = "blue"
+                            echo "🟩 Green is active → Auto-switching to Blue"
+                        } else {
+                            env.NEW_VERSION = "blue"
+                            echo "⚙️ No active version detected → Deploying Blue (first deployment)"
+                        }
                     }
                 }
             }
@@ -47,8 +64,8 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 bat '''
-                echo Building Docker image %DOCKER_REPO%/%DOCKER_IMAGE%:%NEW_VERSION% ...
-                docker build -t %DOCKER_REPO%/%DOCKER_IMAGE%:%NEW_VERSION% .
+                echo Building Docker image %DOCKER_IMAGE%:%NEW_VERSION% ...
+                docker build -t %DOCKER_IMAGE%:%NEW_VERSION% .
                 '''
             }
         }
@@ -59,9 +76,9 @@ pipeline {
                     bat '''
                     echo Logging in to Docker Hub...
                     docker login -u %DOCKER_USER% -p %DOCKER_PASS%
+                    docker tag %DOCKER_IMAGE%:%NEW_VERSION% %DOCKER_USER%/%DOCKER_IMAGE%:%NEW_VERSION%
                     echo Pushing image to Docker Hub...
-                    docker push %DOCKER_REPO%/%DOCKER_IMAGE%:%NEW_VERSION%
-                    docker logout
+                    docker push %DOCKER_USER%/%DOCKER_IMAGE%:%NEW_VERSION%
                     '''
                 }
             }
@@ -86,7 +103,7 @@ pipeline {
                     echo "🩺 Checking if ${env.NEW_VERSION} deployment is healthy..."
                     def healthCheck = powershell(
                         script: '''
-                        Start-Sleep -Seconds 25
+                        Start-Sleep -Seconds 20
                         try {
                             $response = Invoke-WebRequest -Uri "http://localhost:30082" -UseBasicParsing -TimeoutSec 10
                             if ($response.StatusCode -eq 200) { Write-Output "200" } else { Write-Output "FAIL" }
@@ -110,7 +127,7 @@ pipeline {
                     bat '''
                     set KUBECONFIG=%KUBECONFIG_FILE%
                     echo Switching service to %NEW_VERSION% version...
-                    kubectl patch svc educenter-service --type merge -p "{\"spec\": {\"selector\": {\"app\": \"educenter\", \"version\": \"%NEW_VERSION%\"}}}"
+                    kubectl patch svc educenter-service --type merge -p "{\\"spec\\": {\\"selector\\": {\\"app\\": \\"educenter\\", \\"version\\": \\"%NEW_VERSION%\\"}}}"
                     '''
                 }
             }
@@ -119,7 +136,7 @@ pipeline {
 
     post {
         success {
-            echo "✅ Blue-Green Deployment Successful! New active version: ${env.NEW_VERSION}"
+            echo "✅ Blue-Green Deployment Successful! Now active: ${env.NEW_VERSION}"
         }
         failure {
             echo "❌ Deployment Failed. Please check logs or rollback manually."
