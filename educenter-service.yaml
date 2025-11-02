@@ -3,11 +3,11 @@ kind: Service
 metadata:
   name: educenter-service
 spec:
-  type: NodePort
+  type: LoadBalancer        # You can change to NodePort if you're using Docker Desktop or Minikube
+  ports:
+    - port: 80              # Port exposed by the service
+      targetPort: 80        # Port your container listens on
+      nodePort: 30082       # Only used if type=NodePort
   selector:
     app: educenter
-    version: blue   # 👈 initially routes to Blue
-  ports:
-    - port: 80
-      targetPort: 80
-      nodePort: 30082   # you’ll access via http://localhost:30082
+    version: blue           # Change to "green" when switching traffic
