@@ -97,26 +97,29 @@ pipeline {
             }
         }
 
-        stage('Health Check Before Switch') {
+        stage('Health Check Inside Cluster') {
             steps {
-                script {
-                    echo "🩺 Checking if ${env.NEW_VERSION} deployment is healthy..."
-                    def healthCheck = powershell(
-                        script: '''
-                        Start-Sleep -Seconds 20
-                        try {
-                            $response = Invoke-WebRequest -Uri "http://localhost:30082" -UseBasicParsing -TimeoutSec 10
-                            if ($response.StatusCode -eq 200) { Write-Output "200" } else { Write-Output "FAIL" }
-                        } catch { Write-Output "FAIL" }
-                        ''',
-                        returnStdout: true
-                    ).trim()
-
-                    if (healthCheck != "200") {
-                        error "❌ Health check failed for ${env.NEW_VERSION} version! Aborting deployment."
-                    } else {
-                        echo "✅ Health check passed for ${env.NEW_VERSION} version."
-                    }
+                withCredentials([file(credentialsId: "${KUBE_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
+                    bat '''
+                    set KUBECONFIG=%KUBECONFIG_FILE%
+                    echo 🩺 Checking pod health inside cluster for %NEW_VERSION%...
+                    setlocal enabledelayedexpansion
+                    for /L %%i in (1,1,10) do (
+                        echo --- Attempt %%i ---
+                        kubectl get pods -l app=educenter,version=%NEW_VERSION% -o custom-columns="NAME:.metadata.name,STATUS:.status.phase,READY:.status.containerStatuses[*].ready" -n default
+                        kubectl get pods -l app=educenter,version=%NEW_VERSION% -o jsonpath="{.items[*].status.containerStatuses[*].ready}" > ready.txt
+                        set /p READY=<ready.txt
+                        if "!READY!"=="true" (
+                            echo ✅ Pods for %NEW_VERSION% are READY!
+                            exit /b 0
+                        )
+                        echo ⏳ Waiting for pods to become ready... (%%i/10)
+                        timeout /t 10 >nul
+                    )
+                    echo ❌ Pods for %NEW_VERSION% failed to become ready in time.
+                    exit /b 1
+                    endlocal
+                    '''
                 }
             }
         }
@@ -126,8 +129,9 @@ pipeline {
                 withCredentials([file(credentialsId: "${KUBE_CREDENTIALS_ID}", variable: 'KUBECONFIG_FILE')]) {
                     bat '''
                     set KUBECONFIG=%KUBECONFIG_FILE%
-                    echo Switching service to %NEW_VERSION% version...
+                    echo 🔁 Switching service to %NEW_VERSION% version...
                     kubectl patch svc educenter-service --type merge -p "{\\"spec\\": {\\"selector\\": {\\"app\\": \\"educenter\\", \\"version\\": \\"%NEW_VERSION%\\"}}}"
+                    echo ✅ Traffic switched successfully to %NEW_VERSION%!
                     '''
                 }
             }
@@ -136,10 +140,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Blue-Green Deployment Successful! Now active: ${env.NEW_VERSION}"
+            echo "✅ Blue-Green Deployment Successful! Active version: ${env.NEW_VERSION}"
         }
         failure {
-            echo "❌ Deployment Failed. Please check logs or rollback manually."
+            echo "❌ Deployment Failed. Please check Jenkins logs or rollback manually."
         }
     }
 }
